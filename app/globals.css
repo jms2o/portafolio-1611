@@ -200,6 +200,12 @@ main { position: relative; isolation: isolate; }
 .model-interface > div { display: flex; gap: .35rem; }
 .model-interface b { padding: .36rem .48rem; border: 1px solid rgb(255 255 255 / .16); border-radius: 3px; color: #b8c2ce; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .55rem; letter-spacing: .1em; }
 .model-interface b:first-child { border-color: rgb(200 255 77 / .35); color: var(--lime); }
+.perceptron-label { position: absolute; z-index: 3; display: grid; gap: .18rem; pointer-events: none; color: #7f8b99; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .56rem; letter-spacing: .11em; }
+.perceptron-label b { color: #d8e0e9; font-size: .58rem; }
+.label-inputs { top: 28%; left: 7%; }
+.label-sum { top: 27%; left: 43%; text-align: center; }
+.label-output { top: 42%; right: 6%; text-align: right; }
+.perceptron-equation { position: absolute; z-index: 3; left: 50%; bottom: 18%; padding: .55rem .75rem; border: 1px solid rgb(200 255 77 / .22); border-radius: 6px; background: rgb(7 11 16 / .62); color: var(--lime); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .67rem; letter-spacing: .06em; transform: translateX(-50%); pointer-events: none; backdrop-filter: blur(8px); }
 .model-caption { position: absolute; z-index: 3; right: 24px; bottom: 21px; display: flex; align-items: center; gap: .55rem; color: #8994a2; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .62rem; letter-spacing: .08em; pointer-events: none; }
 .model-caption i { width: 6px; height: 6px; border-radius: 50%; background: var(--lime); box-shadow: 0 0 12px var(--lime); }
 
@@ -374,6 +380,12 @@ footer a:hover { color: var(--ink); }
   .orbital-scene { min-height: 440px; margin-top: -.5rem; }
   .model-interface { inset: 16px 16px auto; }
   .model-interface > div { display: none; }
+  .perceptron-label { font-size: .5rem; }
+  .perceptron-label b { font-size: .52rem; }
+  .label-inputs { left: 4%; }
+  .label-sum { left: 42%; }
+  .label-output { right: 4%; }
+  .perceptron-equation { bottom: 16%; font-size: .58rem; }
   .model-caption { right: 16px; bottom: 15px; }
   .hero-strip { grid-template-columns: 1fr; }
   .hero-strip div { padding: .82rem 0; }
