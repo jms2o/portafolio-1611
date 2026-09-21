@@ -2,13 +2,14 @@
 
 import { useEffect, useRef, type PointerEvent } from "react";
 
-type Matrix = Float32Array;
 type Point3D = [number, number, number];
-type Edge = { from: Point3D; to: Point3D; color: [number, number, number]; delay: number };
+type Color = [number, number, number];
+type Edge = { from: Point3D; to: Point3D; color: Color; delay: number; weight: string };
+type ProjectedPoint = { x: number; y: number; depth: number; scale: number };
 
-const lime: [number, number, number] = [.78, 1, .3];
-const blue: [number, number, number] = [.25, .7, 1];
-const violet: [number, number, number] = [.68, .48, 1];
+const lime: Color = [200, 255, 77];
+const blue: Color = [64, 178, 255];
+const violet: Color = [174, 122, 255];
 const inputs: Point3D[] = [
   [-2.25, 1.32, -.35],
   [-2.45, .43, .28],
@@ -21,59 +22,98 @@ const activation: Point3D = [1.25, 0, .22];
 const output: Point3D = [2.38, 0, -.08];
 
 const edges: Edge[] = [
-  ...inputs.map((from, index) => ({ from, to: sum, color: index % 2 ? blue : violet, delay: index * .16 })),
-  { from: bias, to: sum, color: lime, delay: .31 },
-  { from: sum, to: activation, color: blue, delay: .18 },
-  { from: activation, to: output, color: lime, delay: .52 },
+  ...inputs.map((from, index) => ({
+    from,
+    to: sum,
+    color: index % 2 ? blue : violet,
+    delay: index * .16,
+    weight: `w${index + 1}`,
+  })),
+  { from: bias, to: sum, color: lime, delay: .31, weight: "b" },
+  { from: sum, to: activation, color: blue, delay: .18, weight: "z" },
+  { from: activation, to: output, color: lime, delay: .52, weight: "ŷ" },
 ];
 
-function identity(): Matrix {
-  return new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+const rgba = (color: Color, alpha: number) => `rgba(${color[0]}, ${color[1]}, ${color[2]}, ${alpha})`;
+
+function rotateAndProject(
+  point: Point3D,
+  rotationX: number,
+  rotationY: number,
+  width: number,
+  height: number,
+): ProjectedPoint {
+  const cosY = Math.cos(rotationY), sinY = Math.sin(rotationY);
+  const cosX = Math.cos(rotationX), sinX = Math.sin(rotationX);
+  const x = point[0] * cosY + point[2] * sinY;
+  const zAfterY = -point[0] * sinY + point[2] * cosY;
+  const y = point[1] * cosX - zAfterY * sinX;
+  const z = point[1] * sinX + zAfterY * cosX;
+  const perspective = 5.8 / (5.8 + z);
+  const unit = Math.min(width, height) * .155;
+
+  return {
+    x: width / 2 + x * unit * perspective,
+    y: height / 2 - y * unit * perspective,
+    depth: z,
+    scale: perspective,
+  };
 }
 
-function multiply(a: Matrix, b: Matrix): Matrix {
-  const out = new Float32Array(16);
-  for (let column = 0; column < 4; column += 1) {
-    for (let row = 0; row < 4; row += 1) {
-      out[column * 4 + row] =
-        a[row] * b[column * 4] + a[4 + row] * b[column * 4 + 1] +
-        a[8 + row] * b[column * 4 + 2] + a[12 + row] * b[column * 4 + 3];
-    }
-  }
-  return out;
+function interpolate(from: Point3D, to: Point3D, progress: number): Point3D {
+  return [
+    from[0] + (to[0] - from[0]) * progress,
+    from[1] + (to[1] - from[1]) * progress,
+    from[2] + (to[2] - from[2]) * progress,
+  ];
 }
 
-function translation(x: number, y: number, z: number): Matrix {
-  const out = identity();
-  out[12] = x; out[13] = y; out[14] = z;
-  return out;
-}
+function drawNode(
+  context: CanvasRenderingContext2D,
+  point: ProjectedPoint,
+  color: Color,
+  radius: number,
+  label: string,
+  ratio: number,
+) {
+  const size = radius * point.scale;
+  const glow = context.createRadialGradient(point.x, point.y, 0, point.x, point.y, size * 2.4);
+  glow.addColorStop(0, rgba(color, .34));
+  glow.addColorStop(.45, rgba(color, .12));
+  glow.addColorStop(1, rgba(color, 0));
+  context.fillStyle = glow;
+  context.beginPath();
+  context.arc(point.x, point.y, size * 2.4, 0, Math.PI * 2);
+  context.fill();
 
-function rotationX(angle: number): Matrix {
-  const c = Math.cos(angle), s = Math.sin(angle);
-  return new Float32Array([1, 0, 0, 0, 0, c, s, 0, 0, -s, c, 0, 0, 0, 0, 1]);
-}
+  const sphere = context.createRadialGradient(
+    point.x - size * .3,
+    point.y - size * .35,
+    size * .08,
+    point.x,
+    point.y,
+    size,
+  );
+  sphere.addColorStop(0, "rgba(255,255,255,.96)");
+  sphere.addColorStop(.18, rgba(color, .98));
+  sphere.addColorStop(.72, rgba(color, .5));
+  sphere.addColorStop(1, rgba(color, .12));
+  context.shadowColor = rgba(color, .72);
+  context.shadowBlur = 14 * ratio;
+  context.fillStyle = sphere;
+  context.beginPath();
+  context.arc(point.x, point.y, size, 0, Math.PI * 2);
+  context.fill();
+  context.shadowBlur = 0;
+  context.strokeStyle = rgba(color, .95);
+  context.lineWidth = 1.25;
+  context.stroke();
 
-function rotationY(angle: number): Matrix {
-  const c = Math.cos(angle), s = Math.sin(angle);
-  return new Float32Array([c, 0, -s, 0, 0, 1, 0, 0, s, 0, c, 0, 0, 0, 1]);
-}
-
-function perspective(fieldOfView: number, aspect: number, near: number, far: number): Matrix {
-  const f = 1 / Math.tan(fieldOfView / 2), range = 1 / (near - far);
-  return new Float32Array([f / aspect, 0, 0, 0, 0, f, 0, 0, 0, 0, (near + far) * range, -1, 0, 0, near * far * range * 2, 0]);
-}
-
-function compileShader(gl: WebGLRenderingContext, type: number, source: string) {
-  const result = gl.createShader(type);
-  if (!result) return null;
-  gl.shaderSource(result, source);
-  gl.compileShader(result);
-  return gl.getShaderParameter(result, gl.COMPILE_STATUS) ? result : null;
-}
-
-function vertexData(points: Array<{ position: Point3D; color: [number, number, number] }>) {
-  return new Float32Array(points.flatMap(({ position, color }) => [...position, ...color]));
+  context.fillStyle = "#071018";
+  context.font = `800 ${Math.max(10, size * .72)}px ui-monospace, SFMono-Regular, Menlo, monospace`;
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.fillText(label, point.x, point.y + .5);
 }
 
 export function OrbitalScene() {
@@ -82,146 +122,73 @@ export function OrbitalScene() {
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    const gl = canvas?.getContext("webgl", { alpha: true, antialias: true });
-    if (!canvas || !gl) return;
+    const context = canvas?.getContext("2d");
+    if (!canvas || !context) return;
 
-    const vertex = compileShader(gl, gl.VERTEX_SHADER, `
-      attribute vec3 aPosition;
-      attribute vec3 aColor;
-      uniform mat4 uMvp;
-      uniform float uPointSize;
-      varying vec3 vColor;
-      void main() {
-        vColor = aColor;
-        gl_Position = uMvp * vec4(aPosition, 1.0);
-        gl_PointSize = uPointSize;
-      }
-    `);
-    const fragment = compileShader(gl, gl.FRAGMENT_SHADER, `
-      precision mediump float;
-      uniform float uPoint;
-      uniform float uOpacity;
-      varying vec3 vColor;
-      void main() {
-        float alpha = uOpacity;
-        if (uPoint > 0.5) {
-          float distanceToCenter = length(gl_PointCoord - vec2(0.5));
-          if (distanceToCenter > 0.5) discard;
-          float core = 1.0 - smoothstep(0.04, 0.5, distanceToCenter);
-          alpha *= 1.0 - smoothstep(0.34, 0.5, distanceToCenter);
-          gl_FragColor = vec4(vColor + core * 0.34, alpha);
-        } else {
-          gl_FragColor = vec4(vColor, alpha);
-        }
-      }
-    `);
-    if (!vertex || !fragment) return;
-
-    const program = gl.createProgram();
-    if (!program) return;
-    gl.attachShader(program, vertex);
-    gl.attachShader(program, fragment);
-    gl.linkProgram(program);
-    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) return;
-
-    const lineData = vertexData(edges.flatMap(({ from, to, color }) => [
-      { position: from, color },
-      { position: to, color },
-    ]));
-    const nodeData = vertexData([
-      ...inputs.map((position, index) => ({ position, color: index % 2 ? blue : violet })),
-      { position: bias, color: lime },
-      { position: sum, color: lime },
-      { position: activation, color: blue },
-      { position: output, color: lime },
-    ]);
-    const lineBuffer = gl.createBuffer();
-    const nodeBuffer = gl.createBuffer();
-    const pulseBuffer = gl.createBuffer();
-    if (!lineBuffer || !nodeBuffer || !pulseBuffer) return;
-    gl.bindBuffer(gl.ARRAY_BUFFER, lineBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, lineData, gl.STATIC_DRAW);
-    gl.bindBuffer(gl.ARRAY_BUFFER, nodeBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, nodeData, gl.STATIC_DRAW);
-
-    const positionLocation = gl.getAttribLocation(program, "aPosition");
-    const colorLocation = gl.getAttribLocation(program, "aColor");
-    const mvpLocation = gl.getUniformLocation(program, "uMvp");
-    const pointSizeLocation = gl.getUniformLocation(program, "uPointSize");
-    const pointLocation = gl.getUniformLocation(program, "uPoint");
-    const opacityLocation = gl.getUniformLocation(program, "uOpacity");
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    let frame = 0, currentX = -.08, currentY = -.16;
-
-    const bindData = (buffer: WebGLBuffer) => {
-      gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-      gl.enableVertexAttribArray(positionLocation);
-      gl.vertexAttribPointer(positionLocation, 3, gl.FLOAT, false, 24, 0);
-      gl.enableVertexAttribArray(colorLocation);
-      gl.vertexAttribPointer(colorLocation, 3, gl.FLOAT, false, 24, 12);
-    };
+    let frame = 0;
+    let currentX = -.08;
+    let currentY = -.16;
 
     function render(time: number) {
       const ratio = Math.min(window.devicePixelRatio || 1, 2);
-      const width = Math.max(1, Math.floor(canvas!.clientWidth * ratio));
-      const height = Math.max(1, Math.floor(canvas!.clientHeight * ratio));
-      if (canvas!.width !== width || canvas!.height !== height) {
-        canvas!.width = width;
-        canvas!.height = height;
+      const width = Math.max(1, canvas!.clientWidth);
+      const height = Math.max(1, canvas!.clientHeight);
+      const pixelWidth = Math.floor(width * ratio);
+      const pixelHeight = Math.floor(height * ratio);
+      if (canvas!.width !== pixelWidth || canvas!.height !== pixelHeight) {
+        canvas!.width = pixelWidth;
+        canvas!.height = pixelHeight;
       }
-      gl!.viewport(0, 0, width, height);
-      gl!.clearColor(0, 0, 0, 0);
-      gl!.clear(gl!.COLOR_BUFFER_BIT | gl!.DEPTH_BUFFER_BIT);
-      gl!.enable(gl!.DEPTH_TEST);
-      gl!.enable(gl!.BLEND);
-      gl!.blendFunc(gl!.SRC_ALPHA, gl!.ONE_MINUS_SRC_ALPHA);
-      gl!.useProgram(program);
 
+      context!.setTransform(ratio, 0, 0, ratio, 0, 0);
+      context!.clearRect(0, 0, width, height);
       currentX += (target.current.x - currentX) * .055;
       currentY += (target.current.y - currentY) * .055;
       const idle = reducedMotion ? 0 : Math.sin(time * .00032) * .07;
-      const rotation = multiply(rotationY(currentY + idle), rotationX(currentX));
-      const view = translation(0, .02, -7.7);
-      const projection = perspective(Math.PI / 4.15, width / height, .1, 100);
-      const mvp = multiply(projection, multiply(view, rotation));
-      gl!.uniformMatrix4fv(mvpLocation, false, mvp);
+      const project = (point: Point3D) => rotateAndProject(point, currentX, currentY + idle, width, height);
 
-      bindData(lineBuffer);
-      gl!.uniform1f(pointLocation, 0);
-      gl!.uniform1f(opacityLocation, .5);
-      gl!.drawArrays(gl!.LINES, 0, lineData.length / 6);
+      for (const edge of edges) {
+        const from = project(edge.from);
+        const to = project(edge.to);
+        const gradient = context!.createLinearGradient(from.x, from.y, to.x, to.y);
+        gradient.addColorStop(0, rgba(edge.color, .2));
+        gradient.addColorStop(.45, rgba(edge.color, .82));
+        gradient.addColorStop(1, rgba(edge.color, .35));
+        context!.strokeStyle = gradient;
+        context!.lineWidth = 1.7;
+        context!.shadowColor = rgba(edge.color, .35);
+        context!.shadowBlur = 8;
+        context!.beginPath();
+        context!.moveTo(from.x, from.y);
+        context!.lineTo(to.x, to.y);
+        context!.stroke();
+        context!.shadowBlur = 0;
 
-      bindData(nodeBuffer);
-      gl!.uniform1f(pointLocation, 1);
-      gl!.uniform1f(opacityLocation, .18);
-      gl!.uniform1f(pointSizeLocation, 54 * ratio);
-      gl!.drawArrays(gl!.POINTS, 0, nodeData.length / 6);
-      gl!.uniform1f(opacityLocation, .98);
-      gl!.uniform1f(pointSizeLocation, 22 * ratio);
-      gl!.drawArrays(gl!.POINTS, 0, 5);
-      gl!.uniform1f(pointSizeLocation, 35 * ratio);
-      gl!.drawArrays(gl!.POINTS, 5, 1);
-      gl!.uniform1f(pointSizeLocation, 28 * ratio);
-      gl!.drawArrays(gl!.POINTS, 6, 1);
-      gl!.uniform1f(pointSizeLocation, 31 * ratio);
-      gl!.drawArrays(gl!.POINTS, 7, 1);
+        const labelX = from.x + (to.x - from.x) * .58;
+        const labelY = from.y + (to.y - from.y) * .58;
+        context!.fillStyle = rgba(edge.color, .76);
+        context!.font = "700 9px ui-monospace, SFMono-Regular, Menlo, monospace";
+        context!.textAlign = "center";
+        context!.fillText(edge.weight, labelX, labelY - 7);
 
-      const pulses = edges.map((edge) => {
         const progress = reducedMotion ? .62 : (time * .00034 + edge.delay) % 1;
-        const position: Point3D = [
-          edge.from[0] + (edge.to[0] - edge.from[0]) * progress,
-          edge.from[1] + (edge.to[1] - edge.from[1]) * progress,
-          edge.from[2] + (edge.to[2] - edge.from[2]) * progress,
-        ];
-        return { position, color: edge.color };
-      });
-      const pulseData = vertexData(pulses);
-      gl!.bindBuffer(gl!.ARRAY_BUFFER, pulseBuffer);
-      gl!.bufferData(gl!.ARRAY_BUFFER, pulseData, gl!.DYNAMIC_DRAW);
-      bindData(pulseBuffer);
-      gl!.uniform1f(opacityLocation, 1);
-      gl!.uniform1f(pointSizeLocation, 10 * ratio);
-      gl!.drawArrays(gl!.POINTS, 0, pulses.length);
+        const pulse = project(interpolate(edge.from, edge.to, progress));
+        const pulseGlow = context!.createRadialGradient(pulse.x, pulse.y, 0, pulse.x, pulse.y, 11);
+        pulseGlow.addColorStop(0, "rgba(255,255,255,1)");
+        pulseGlow.addColorStop(.22, rgba(edge.color, 1));
+        pulseGlow.addColorStop(1, rgba(edge.color, 0));
+        context!.fillStyle = pulseGlow;
+        context!.beginPath();
+        context!.arc(pulse.x, pulse.y, 11, 0, Math.PI * 2);
+        context!.fill();
+      }
+
+      inputs.forEach((point, index) => drawNode(context!, project(point), index % 2 ? blue : violet, 13, `x${index + 1}`, ratio));
+      drawNode(context!, project(bias), lime, 12, "b", ratio);
+      drawNode(context!, project(sum), lime, 24, "Σ", ratio);
+      drawNode(context!, project(activation), blue, 20, "ƒ", ratio);
+      drawNode(context!, project(output), lime, 22, "ŷ", ratio);
 
       frame = requestAnimationFrame(render);
     }
@@ -233,8 +200,8 @@ export function OrbitalScene() {
   function move(event: PointerEvent<HTMLDivElement>) {
     if (event.pointerType === "touch") return;
     const box = event.currentTarget.getBoundingClientRect();
-    target.current.y = ((event.clientX - box.left) / box.width - .5) * .8;
-    target.current.x = -.08 + ((event.clientY - box.top) / box.height - .5) * -.48;
+    target.current.y = ((event.clientX - box.left) / box.width - .5) * .78;
+    target.current.x = -.08 + ((event.clientY - box.top) / box.height - .5) * -.46;
   }
 
   function reset() {
@@ -246,7 +213,7 @@ export function OrbitalScene() {
       <div className="model-halo" aria-hidden="true" />
       <canvas ref={canvasRef} className="model-canvas" aria-hidden="true" />
       <div className="model-interface" aria-hidden="true">
-        <span className="interface-top">PERCEPTRON // WEBGL</span>
+        <span className="interface-top">PERCEPTRON // CANVAS 3D</span>
         <div><b>xᵢ</b><b>wᵢ</b><b>ƒ</b></div>
       </div>
       <div className="perceptron-label label-inputs" aria-hidden="true"><b>ENTRADAS</b><span>x₁ · x₂ · x₃ · x₄</span></div>
